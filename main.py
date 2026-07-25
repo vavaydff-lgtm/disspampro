@@ -21,7 +21,7 @@ if not BOT_TOKEN:
     print("❌ Установи BOT_TOKEN!")
     exit(1)
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token=BOT_TIMEOUT, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
@@ -99,7 +99,7 @@ def get_dm_session(token):
         "Origin": "https://discord.com", "Referer": "https://discord.com/channels/@me",
         "Sec-Ch-Ua": '"Chromium";v="121"', "Sec-Ch-Ua-Mobile": "?1",
         "Sec-Ch-Ua-Platform": '"Android"',
-        "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors", "type": "same-origin",
     })
     return s
 
@@ -130,7 +130,7 @@ def get_guilds(token):
     return guilds
 
 def get_friends(token):
-    r = rest_req(token, "GET", "https://discord.com/api/v9/users/@me/relationships")
+    r = rest_req(token, "get", "https://discord.com/api/v9/users/@me/relationships")
     return [x['user'] for x in r.json() if r and r.status_code == 200 and x.get('type') == 1] if r else []
 
 def get_dms(token):
@@ -138,10 +138,15 @@ def get_dms(token):
     if not r or r.status_code != 200: return []
     result = []
     for ch in r.json():
-        if ch.get('type') == 3:
-            name = ch.get('name') or ', '.join(x.get('username','?') for x in ch.get('recipients',[])[:3])
-            if len(ch.get('recipients',[])) > 3: name += f" +{len(ch['recipients'])-3}"
-            result.append({"id": ch["id"], "name": name})
+        # ЛС (тип 1) + Групповые (тип 3)
+        if ch.get('type') in [1, 3]:
+            if ch.get('type') == 1:
+                user = ch.get('recipients', [{}])[0]
+                name = f"ЛС: {user.get('username', '?')}"
+            else:
+                name = ch.get('name') or ', '.join(x.get('username','?') for x in ch.get('recipients',[])[:3])
+                if len(ch.get('recipients',[])) > 3: name += f" +{len(ch['recipients'])-3}"
+            result.append({"id": ch["id"], "name": name, "type": ch.get("type")})
     return result
 
 def get_guild_channels(token, gid):
@@ -169,7 +174,7 @@ def send_dm(token, ch_id, msg):
 
 def ensure_user(uid):
     if uid not in users:
-        users[uid] = {"accounts": [], "targets": {}, "settings": {"msg_delay": 7, "jitter": 2, "dm_delay": 15, "round_delay": 45, "typing": True}, "spamming": False, "stop": False, "msgs": [], "sent": 0}
+        users[uid] = {"accounts": [], "targets": {"friends_list": [], "dms_list": []}, "settings": {"msg_delay": 7, "jitter": 2, "dm_delay": 15, "round_delay": 45, "typing": True}, "spamming": False, "stop": False, "msgs": [], "sent": 0}
 
 class States(StatesGroup):
     waiting_token = State()
@@ -192,6 +197,10 @@ def admin_main_kb():
         [InlineKeyboardButton(text="🔑 Добавить токен", callback_data="add_token")],
         [InlineKeyboardButton(text="📋 Мои аккаунты", callback_data="list_accs")],
         [InlineKeyboardButton(text="🎯 Собрать цели", callback_data="collect")],
+        [inline_keyboard(
+            InlineKeyboardButton(text="👥 Друзья", callback_data="tgl_friends"),
+            InlineKeyboardButton(text="💬 Групповые чаты", callback_data="tgl_dms")
+        )],
         [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")],
         [InlineKeyboardButton(text="📝 Сообщение", callback_data="set_msg")],
         [InlineKeyboardButton(text="🚀 Старт спама", callback_data="start_spam")],
@@ -213,13 +222,19 @@ def collect_kb(uid):
     ensure_user(uid)
     t = users[uid].get("targets", {})
     btns = []
-    for uname, data in t.items():
-        g_c = sum(1 for g in data.get("guilds", []) if g.get("selected"))
-        f_c = sum(1 for f in data.get("friends", []) if f.get("selected"))
-        d_c = sum(1 for d in data.get("dms", []) if d.get("selected"))
-        btns.append([InlineKeyboardButton(text=f"🖥 {uname}: {g_c}/{len(data.get('guilds',[]))} серв.", callback_data=f"tgl_g_{uname}")])
-        btns.append([InlineKeyboardButton(text=f"👥 {uname}: {f_c}/{len(data.get('friends',[]))} друз.", callback_data=f"tgl_f_{uname}")])
-        btns.append([InlineKeyboardButton(text=f"💬 {uname}: {d_c}/{len(data.get('dms',[]))} групп", callback_data=f"tgl_d_{uname}")])
+    
+    # Серверы
+    total_g = sum(len(data.get("guilds", [])) for data in t.values())
+    btns.append([InlineKeyboardButton(text=f"🖥 Серверы: {total_g}", callback_data="tgl_servers")])
+    
+    # Друзья
+    total_f = sum(len(data.get("friends_list", [])) for data in t.values())
+    btns.append([InlineKeyboardButton(text=f"👥 Друзья: {total_f}", callback_data="tgl_friends")])
+    
+    # ЛС и группы
+    total_d = sum(len(data.get("dms_list", [])) for data in t.values())
+    btns.append([InlineKeyboardButton(text=f"💬 ЛС и группы: {total_d}", callback_data="tgl_dms")])
+    
     btns.append([InlineKeyboardButton(text="✅ Загрузить каналы", callback_data="load_channels")])
     btns.append([InlineKeyboardButton(text="← Назад", callback_data="back")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
@@ -227,7 +242,7 @@ def collect_kb(uid):
 def settings_kb(s):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="REST -", callback_data="rd-"), InlineKeyboardButton(text="REST +", callback_data="rd+")],
-        [InlineKeyboardButton(text="Разброс -", callback_data="j-"), InlineKeyboardButton(text="Разброс +", callback_data="j+")],
+        [InlineKeyboardButton(text="Разброс -", callback_data="j-"), InlineKeyboardButton(text="разброс +", callback_data="j+")],
         [InlineKeyboardButton(text="DM -", callback_data="dd-"), InlineKeyboardButton(text="DM +", callback_data="dd+")],
         [InlineKeyboardButton(text="Пауза -", callback_data="pd-"), InlineKeyboardButton(text="Пауза +", callback_data="pd+")],
         [InlineKeyboardButton(text=f"⌨️ {'ВЫКЛ' if s['typing'] else 'ВКЛ'}", callback_data="tt")],
@@ -292,7 +307,7 @@ async def cb_list(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    uid = c.from_user.id
+    uid = c.from_user id=c.from_user.id
     ensure_user(uid)
     accs = users[uid]["accounts"]
     if not accs:
@@ -314,7 +329,7 @@ async def cmd_del(m: Message):
         return
     ensure_user(uid)
     users[uid]["accounts"] = []
-    users[uid]["targets"] = {}
+    users[uid]["targets"] = {"friends_list": [], "dms_list": []}
     save_data()
     await m.answer("🗑 Удалено", reply_markup=admin_main_kb())
 
@@ -348,51 +363,55 @@ async def do_collect(uid, chat_id):
             )
         except:
             guilds, friends, dms = [], [], []
+        
+        # Друзья сохраняем как список (отдельно от серверов)
+        friends_list = [{"id": f["id"], "name": f"@{f.get('username','?')}", "selected": True} for f in friends]
+        
+        # ЛС и группы сохраняем как список
+        dms_list = [{"id": d["id"], "name": d["name"], "type": d.get("type", 3), "selected": d.get("type", 3) == 3} for d in dms]
+        
         targets[uname] = {
             "token": token,
             "guilds": [{"id": g["id"], "name": g.get('name','?'), "selected": True} for g in guilds],
-            "friends": [{"id": f["id"], "name": f"@{f.get('username','?')}", "selected": True} for f in friends],
-            "dms": [{"id": d["id"], "name": d["name"], "selected": True} for d in dms],
+            "friends_list": friends_list,
+            "dms_list": dms_list,
         }
-        await bot.send_message(chat_id, f"✅ <code>{uname}</code>:\n🖥 {len(guilds)} | 👥 {len(friends)} | 💬 {len(dms)}")
+        await bot.send_message(chat_id, f"✅ <code>{uname}</code>:\n🖥 {len(guilds)} серверов | 👥 {len(friends)} друз. | 💬 {len(dms)} ЛС/групп")
     users[uid]["targets"] = targets
     save_data()
-    await bot.send_message(chat_id, "✅ Выбери что НЕ спамить (или оставь всё):", reply_markup=collect_kb(uid))
+    await bot.send_message(chat_id, "✅ Выбери что НЕ спамить:", reply_markup=collect_kb(uid))
 
-@router.callback_query(F.data.startswith("tgl_g_"))
-async def cb_tgl_g(c: CallbackQuery):
+@router.callback_query(F.data == "tgl_servers")
+async def cb_tgl_servers(c: CallbackQuery):
     uid = c.from_user.id
     ensure_user(uid)
-    uname = c.data.split("_", 2)[2]
-    t = users[uid]["targets"][uname]
-    sel = all(g["selected"] for g in t["guilds"])
-    for g in t["guilds"]: g["selected"] = not sel
+    for uname, data in users[uid]["targets"].items():
+        sel = all(g["selected"] for g in data.get("guilds", []))
+        for g in data.get("guilds", []): g["selected"] = not sel
     save_data()
     await c.answer("Готово")
     try: await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
     except: pass
 
-@router.callback_query(F.data.startswith("tgl_f_"))
-async def cb_tgl_f(c: CallbackQuery):
+@router.callback_query(F.data == "tgl_friends")
+async def cb_tgl_friends(c: CallbackQuery):
     uid = c.from_user.id
     ensure_user(uid)
-    uname = c.data.split("_", 2)[2]
-    t = users[uid]["targets"][uname]
-    sel = all(f["selected"] for f in t["friends"])
-    for f in t["friends"]: f["selected"] = not sel
+    for uname, data in users[uid]["targets"].items():
+        sel = all(f["selected"] for f in data.get("friends_list", []))
+        for f in data.get("friends_list", []): f["selected"] = not sel
     save_data()
     await c.answer("Готово")
     try: await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
     except: pass
 
-@router.callback_query(F.data.startswith("tgl_d_"))
-async def cb_tgl_d(c: CallbackQuery):
+@router.callback_query(F.data == "tgl_dms")
+async def cb_tgl_dms(c: CallbackQuery):
     uid = c.from_user.id
     ensure_user(uid)
-    uname = c.data.split("_", 2)[2]
-    t = users[uid]["targets"][uname]
-    sel = all(d["selected"] for d in t["dms"])
-    for d in t["dms"]: d["selected"] = not sel
+    for uname, data in users[uid]["targets"].items():
+        sel = all(d["selected"] for d in data.get("dms_list", []))
+        for d in data.get("dms_list", []): d["selected"] = not sel
     save_data()
     await c.answer("Готово")
     try: await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
@@ -425,26 +444,26 @@ async def do_load_channels(uid, chat_id):
                 for ch in chs:
                     test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{ch['id']}/messages?limit=1")
                     if test and test.status_code == 200:
-                        rest_ch.append({"id": ch["id"], "name": ch["name"], "api": "rest"})
+                        rest_ch.append({"id": ch["id"], "name": ch["name"]})
             except:
                 pass
         
-        # Группы
-        for d in data.get("dms", []):
-            if not d.get("selected"): continue
+        # Друзья -> DM через REST (без создания, они уже в /users/@me/channels)
+        friends_selected = [f for f in data.get("friends_list", []) if f.get("selected")]
+        if friends_selected:
+            all_dms = get_dms(token)
+            for f in friends_selected:
+                # Ищем ЛС с этим пользователем
+                dm_ch_data = next((d for d in all_dms if d.get('type') == 1 and d.get('recipients', [{}])[0].get('id') == f["id"]), None)
+                if dm_ch_data:
+                    dm_ch.append({"id": dm_ch_data["id"], "name": dm_ch_data["name"]})
+        
+        # Групповые чаты -> REST
+        dms_selected = [d for d in data.get("dms_list", []) if d.get("selected") and d.get("type") == 3]
+        for d in dms_selected:
             test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
             if test and test.status_code == 200:
-                rest_ch.append({"id": d["id"], "name": d["name"], "api": "rest"})
-        
-        # Друзья
-        for f in data.get("friends", []):
-            if not f.get("selected"): continue
-            try:
-                loop = asyncio.get_event_loop()
-                dm_id = await loop.run_in_executor(None, create_dm, token, f["id"])
-                if dm_id: dm_ch.append({"id": dm_id, "name": f["name"], "api": "dm"})
-            except:
-                pass
+                rest_ch.append({"id": d["id"], "name": d["name"]})
         
         data["rest_channels"] = rest_ch
         data["dm_channels"] = dm_ch
@@ -454,7 +473,7 @@ async def do_load_channels(uid, chat_id):
     
     users[uid]["targets"] = targets
     save_data()
-    await bot.send_message(chat_id, f"🎉 Готово!\n🖥 REST: {total_rest}\n📱 DM: {total_dm}", reply_markup=admin_main_kb())
+    await bot.send_message(chat_id, f"🎉 Готово!\n🖥 REST: {total_rest} | 📱 DM: {total_dm}", reply_markup=admin_main_kb())
 
 @router.callback_query(F.data == "settings")
 async def cb_settings(c: CallbackQuery):
@@ -560,7 +579,7 @@ async def cb_start(c: CallbackQuery):
     u["stop"] = False
     save_data()
     try:
-        await c.message.edit_text(f"🚀 <b>СПАМ ЗАПУЩЕН</b>\n\n🖥 Серверы+группы: {rest_total}\n📱 ЛС: {dm_total}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        await c.message.edit_text(f"🚀 <b>СПАМ ЗАПУЩЕН</b>\n\n🖥 REST: {rest_total} каналов\n📱 DM: {dm_total} ЛС", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛑 СТОП", callback_data="stop_spam")]
         ]))
     except: pass
@@ -609,7 +628,7 @@ async def do_spam(uid, chat_id):
         
         if not u.get("stop"): await asyncio.sleep(random.uniform(5, 15))
         
-        # ФАЗА 2: DM (ЛС)
+        # ФАЗА 2: DM (все ЛС - друзья и переписки)
         for uname, data in u["targets"].items():
             if u.get("stop"): break
             channels = data.get("dm_channels", [])
@@ -701,6 +720,7 @@ async def cb_admin_del(c: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin_wipe")
 async def cb_admin_wipe(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
+        await c.from_user.id)
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
@@ -721,7 +741,7 @@ async def got_admin_id(m: Message, state: FSMContext):
         ADMIN_IDS.remove(target_id)
         await m.answer(f"➖ Удалён из админов: <code>{target_id}</code>", reply_markup=admin_main_kb())
     elif str(target_id) in users:
-        users[str(target_id)] = {"accounts": [], "targets": {}, "settings": {"msg_delay": 7, "jitter": 2, "dm_delay": 15, "round_delay": 45, "typing": True}, "spamming": False, "stop": False, "msgs": [], "sent": 0}
+        users[str(target_id)] = {"accounts": [], "targets": {"friends_list": [], "dms_list": []}, "settings": {"msg_delay": 7, "jitter": 2, "dm_delay": 15, "round_delay": 45, "typing": True}, "spamming": False, "stop": False, "msgs": [], "sent": 0}
         save_data()
         await m.answer(f"🗑 Очищен: <code>{target_id}</code>", reply_markup=admin_main_kb())
     else:
