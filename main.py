@@ -403,7 +403,7 @@ async def cb_load_channels(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    try: await c.message.edit_text("⏳ Загружаю каналы с проверкой доступа...")
+    try: await c.message.edit_text("⏳ Параллельная проверка каналов...")
     except: pass
     asyncio.create_task(do_load_channels(c.from_user.id, c.message.chat.id))
 
@@ -415,33 +415,32 @@ async def do_load_channels(uid, chat_id):
         token = data["token"]
         rest_ch, dm_ch = [], []
         
-        # Серверы с проверкой
+        check_list = []
+        
         for g in data.get("guilds", []):
             if not g.get("selected"): continue
             try:
                 loop = asyncio.get_event_loop()
                 chs = await loop.run_in_executor(None, get_guild_channels, token, g["id"])
                 for ch in chs:
-                    test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{ch['id']}/messages?limit=1")
-                    if test and test.status_code == 200:
-                        rest_ch.append({"id": ch["id"], "name": ch["name"], "api": "rest"})
-                    else:
-                        try: await bot.send_message(chat_id, f"  ⚠️ Нет доступа: #{ch['name']}")
-                        except: pass
-                    await asyncio.sleep(0.3)
+                    check_list.append({"id": ch["id"], "name": ch["name"], "api": "rest"})
             except: pass
         
-        # Группы с проверкой
         for d in data.get("dms", []):
             if not d.get("selected"): continue
-            test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
-            if test and test.status_code == 200:
-                rest_ch.append({"id": d["id"], "name": d["name"], "api": "rest"})
-            else:
-                try: await bot.send_message(chat_id, f"  ⚠️ Нет доступа: {d['name']}")
-                except: pass
+            check_list.append({"id": d["id"], "name": d["name"], "api": "rest"})
         
-        # Друзья
+        if check_list:
+            def check_ch(ch):
+                test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{ch['id']}/messages?limit=1")
+                return test and test.status_code == 200
+            
+            loop = asyncio.get_event_loop()
+            results = await asyncio.gather(
+                *[loop.run_in_executor(None, check_ch, ch) for ch in check_list]
+            )
+            rest_ch = [ch for ch, ok in zip(check_list, results) if ok]
+        
         for f in data.get("friends", []):
             if not f.get("selected"): continue
             try:
@@ -580,7 +579,6 @@ async def do_spam(uid, chat_id):
         rnd += 1
         rest_sent, dm_sent = 0, 0
         
-        # ФАЗА 1: REST
         for uname, data in u["targets"].items():
             if u.get("stop"): break
             channels = data.get("rest_channels", [])
@@ -598,8 +596,6 @@ async def do_spam(uid, chat_id):
                         if ch in data["rest_channels"]:
                             data["rest_channels"].remove(ch)
                             save_data()
-                        try: await bot.send_message(chat_id, f"⚠️ Убран #{ch['name']} (403)")
-                        except: pass
                         continue
                     elif r and r.status_code == 429:
                         retry = r.json().get('retry_after', 5)
@@ -615,7 +611,6 @@ async def do_spam(uid, chat_id):
         
         if not u.get("stop"): await asyncio.sleep(random.uniform(5, 15))
         
-        # ФАЗА 2: DM
         for uname, data in u["targets"].items():
             if u.get("stop"): break
             channels = data.get("dm_channels", [])
@@ -633,8 +628,6 @@ async def do_spam(uid, chat_id):
                         if ch in data["dm_channels"]:
                             data["dm_channels"].remove(ch)
                             save_data()
-                        try: await bot.send_message(chat_id, f"⚠️ Убран ЛС {ch['name']} (403)")
-                        except: pass
                         continue
                     elif r and r.status_code == 429:
                         retry = r.json().get('retry_after', 10)
