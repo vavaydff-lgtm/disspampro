@@ -403,7 +403,7 @@ async def cb_load_channels(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    try: await c.message.edit_text("⏳ Загружаю каналы...")
+    try: await c.message.edit_text("⏳ Загружаю каналы с проверкой доступа...")
     except: pass
     asyncio.create_task(do_load_channels(c.from_user.id, c.message.chat.id))
 
@@ -414,16 +414,34 @@ async def do_load_channels(uid, chat_id):
     for uname, data in targets.items():
         token = data["token"]
         rest_ch, dm_ch = [], []
+        
+        # Серверы с проверкой
         for g in data.get("guilds", []):
             if not g.get("selected"): continue
             try:
                 loop = asyncio.get_event_loop()
                 chs = await loop.run_in_executor(None, get_guild_channels, token, g["id"])
-                rest_ch.extend([{"id": ch["id"], "name": ch["name"], "api": "rest"} for ch in chs])
+                for ch in chs:
+                    test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{ch['id']}/messages?limit=1")
+                    if test and test.status_code == 200:
+                        rest_ch.append({"id": ch["id"], "name": ch["name"], "api": "rest"})
+                    else:
+                        try: await bot.send_message(chat_id, f"  ⚠️ Нет доступа: #{ch['name']}")
+                        except: pass
+                    await asyncio.sleep(0.3)
             except: pass
+        
+        # Группы с проверкой
         for d in data.get("dms", []):
             if not d.get("selected"): continue
-            rest_ch.append({"id": d["id"], "name": d["name"], "api": "rest"})
+            test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
+            if test and test.status_code == 200:
+                rest_ch.append({"id": d["id"], "name": d["name"], "api": "rest"})
+            else:
+                try: await bot.send_message(chat_id, f"  ⚠️ Нет доступа: {d['name']}")
+                except: pass
+        
+        # Друзья
         for f in data.get("friends", []):
             if not f.get("selected"): continue
             try:
@@ -431,11 +449,13 @@ async def do_load_channels(uid, chat_id):
                 dm_id = await loop.run_in_executor(None, create_dm, token, f["id"])
                 if dm_id: dm_ch.append({"id": dm_id, "name": f["name"], "api": "dm"})
             except: pass
+        
         data["rest_channels"] = rest_ch
         data["dm_channels"] = dm_ch
         total_rest += len(rest_ch)
         total_dm += len(dm_ch)
         await bot.send_message(chat_id, f"✅ <code>{uname}</code>:\n🖥 REST: {len(rest_ch)}\n📱 DM: {len(dm_ch)}")
+    
     users[uid]["targets"] = targets
     save_data()
     await bot.send_message(chat_id, f"🎉 Готово!\n🖥 REST: {total_rest}\n📱 DM: {total_dm}", reply_markup=admin_main_kb())
@@ -531,7 +551,7 @@ async def cb_start(c: CallbackQuery):
         rest_total += len(data.get("rest_channels", []))
         dm_total += len(data.get("dm_channels", []))
     if rest_total == 0 and dm_total == 0:
-        await c.answer(f"❌ Нет каналов! REST:{rest_total} DM:{dm_total}\nСобери цели и загрузи каналы!", show_alert=True)
+        await c.answer(f"❌ Нет каналов! REST:{rest_total} DM:{dm_total}\nСобери и загрузи каналы!", show_alert=True)
         return
     if not u["msgs"]:
         await c.answer("❌ Установи сообщение!", show_alert=True)
@@ -559,12 +579,14 @@ async def do_spam(uid, chat_id):
     while not u.get("stop", False):
         rnd += 1
         rest_sent, dm_sent = 0, 0
+        
+        # ФАЗА 1: REST
         for uname, data in u["targets"].items():
             if u.get("stop"): break
             channels = data.get("rest_channels", [])
             if not channels: continue
             random.shuffle(channels)
-            for ch in channels:
+            for ch in channels[:]:
                 if u.get("stop"): break
                 try:
                     loop = asyncio.get_event_loop()
@@ -572,6 +594,13 @@ async def do_spam(uid, chat_id):
                     r = await loop.run_in_executor(None, send_rest, data["token"], ch["id"], m)
                     if r and r.status_code == 200:
                         sent += 1; rest_sent += 1
+                    elif r and r.status_code == 403:
+                        if ch in data["rest_channels"]:
+                            data["rest_channels"].remove(ch)
+                            save_data()
+                        try: await bot.send_message(chat_id, f"⚠️ Убран #{ch['name']} (403)")
+                        except: pass
+                        continue
                     elif r and r.status_code == 429:
                         retry = r.json().get('retry_after', 5)
                         await asyncio.sleep(retry + 1)
@@ -579,16 +608,20 @@ async def do_spam(uid, chat_id):
                 except: pass
                 delay = max(0.5, s["msg_delay"] + random.uniform(-s["jitter"], s["jitter"]))
                 await asyncio.sleep(delay)
+        
         if rest_sent > 0:
             try: await bot.send_message(chat_id, f"📊 Р{rnd} REST: +{rest_sent} | Всего: {sent}")
             except: pass
+        
         if not u.get("stop"): await asyncio.sleep(random.uniform(5, 15))
+        
+        # ФАЗА 2: DM
         for uname, data in u["targets"].items():
             if u.get("stop"): break
             channels = data.get("dm_channels", [])
             if not channels: continue
             random.shuffle(channels)
-            for ch in channels:
+            for ch in channels[:]:
                 if u.get("stop"): break
                 try:
                     loop = asyncio.get_event_loop()
@@ -596,6 +629,13 @@ async def do_spam(uid, chat_id):
                     r = await loop.run_in_executor(None, send_dm, data["token"], ch["id"], m)
                     if r and r.status_code == 200:
                         sent += 1; dm_sent += 1
+                    elif r and r.status_code == 403:
+                        if ch in data["dm_channels"]:
+                            data["dm_channels"].remove(ch)
+                            save_data()
+                        try: await bot.send_message(chat_id, f"⚠️ Убран ЛС {ch['name']} (403)")
+                        except: pass
+                        continue
                     elif r and r.status_code == 429:
                         retry = r.json().get('retry_after', 10)
                         await asyncio.sleep(retry + 3)
@@ -603,15 +643,19 @@ async def do_spam(uid, chat_id):
                 except: pass
                 dm_actual = max(3, s["dm_delay"] + random.uniform(-1, 2))
                 await asyncio.sleep(dm_actual)
+        
         if dm_sent > 0:
             try: await bot.send_message(chat_id, f"📊 Р{rnd} DM: +{dm_sent} | Всего: {sent}")
             except: pass
+        
         u["sent"] = sent
         save_data()
+        
         if not u.get("stop"):
             try: await bot.send_message(chat_id, f"😴 Раунд {rnd}. Отдых {s['round_delay']}с...")
             except: pass
             await asyncio.sleep(s["round_delay"])
+    
     u["spamming"] = False
     save_data()
     try: await bot.send_message(chat_id, f"🛑 Стоп! Отправлено: {sent}", reply_markup=admin_main_kb())
