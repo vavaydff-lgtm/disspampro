@@ -46,8 +46,8 @@ def save_data():
     try:
         with open(DATA_FILE, 'w') as f:
             json.dump(users, f, ensure_ascii=False)
-    except:
-        pass
+    except Exception as e:
+        print(f"Save error: {e}")
 
 users = load_data()
 
@@ -146,8 +146,16 @@ def get_dms(token):
 
 def get_guild_channels(token, gid):
     r = rest_req(token, "GET", f"https://discord.com/api/v9/guilds/{gid}/channels")
-    if not r or r.status_code != 200: return []
-    return [{"id": c["id"], "name": c["name"]} for c in r.json() if c.get('type') == 0 and (c.get('permissions',0) & PERM_VIEW) and (c.get('permissions',0) & PERM_SEND)]
+    if not r or r.status_code != 200: 
+        return []
+    result = []
+    for c in r.json():
+        if c.get('type') != 0:
+            continue
+        perms = c.get('permissions', 0)
+        if perms == 0 or ((perms & PERM_VIEW) and (perms & PERM_SEND)):
+            result.append({"id": c["id"], "name": c["name"]})
+    return result
 
 def create_dm(token, uid):
     r = rest_req(token, "POST", "https://discord.com/api/v9/users/@me/channels", json={"recipient_id": uid})
@@ -427,7 +435,7 @@ async def do_load_channels(uid, chat_id):
         data["dm_channels"] = dm_ch
         total_rest += len(rest_ch)
         total_dm += len(dm_ch)
-        await bot.send_message(chat_id, f"✅ <code>{uname}</code>: REST {len(rest_ch)} | DM {len(dm_ch)}")
+        await bot.send_message(chat_id, f"✅ <code>{uname}</code>:\n🖥 REST: {len(rest_ch)}\n📱 DM: {len(dm_ch)}")
     users[uid]["targets"] = targets
     save_data()
     await bot.send_message(chat_id, f"🎉 Готово!\n🖥 REST: {total_rest}\n📱 DM: {total_dm}", reply_markup=admin_main_kb())
@@ -517,9 +525,13 @@ async def cb_start(c: CallbackQuery):
     if not u.get("targets"):
         await c.answer("❌ Собери цели!", show_alert=True)
         return
-    has_channels = any(d.get("rest_channels") or d.get("dm_channels") for d in u["targets"].values())
-    if not has_channels:
-        await c.answer("❌ Нет загруженных каналов!", show_alert=True)
+    rest_total = 0
+    dm_total = 0
+    for uname, data in u["targets"].items():
+        rest_total += len(data.get("rest_channels", []))
+        dm_total += len(data.get("dm_channels", []))
+    if rest_total == 0 and dm_total == 0:
+        await c.answer(f"❌ Нет каналов! REST:{rest_total} DM:{dm_total}\nСобери цели и загрузи каналы!", show_alert=True)
         return
     if not u["msgs"]:
         await c.answer("❌ Установи сообщение!", show_alert=True)
@@ -532,7 +544,7 @@ async def cb_start(c: CallbackQuery):
     u["stop"] = False
     save_data()
     try:
-        await c.message.edit_text("🚀 <b>СПАМ ЗАПУЩЕН</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        await c.message.edit_text(f"🚀 <b>СПАМ ЗАПУЩЕН</b>\n\n🖥 Серверы+группы: {rest_total}\n📱 ЛС: {dm_total}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛑 СТОП", callback_data="stop_spam")]
         ]))
     except: pass
@@ -628,7 +640,7 @@ async def cb_admin_users(c: CallbackQuery):
         rest = sum(len(d.get("rest_channels", [])) for d in data.get("targets", {}).values())
         dm = sum(len(d.get("dm_channels", [])) for d in data.get("targets", {}).values())
         st = "🟢 Спамит" if data.get("spamming") else "⚪ Idle"
-        text += f"{adm} <code>{u_id}</code> | {acc} акк | {rest}+{dm} ч | {st}\n"
+        text += f"{adm} <code>{u_id}</code> | {acc} акк | REST:{rest} DM:{dm} | {st}\n"
     try: await c.message.edit_text(text, reply_markup=back_kb())
     except: pass
 
