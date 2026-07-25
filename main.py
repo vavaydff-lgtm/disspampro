@@ -456,7 +456,7 @@ async def do_load_channels(uid, chat_id):
         for d in dms_selected = [d for d in data.get("dms_list", []) if d.get("selected") and d.get("type") == 3]:
             test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
             if test and test.status_code == 200:
-                rest_ch.append({"id": d["id"], "name": d["name"})
+                rest_ch.append({"id": d["id"], "name": d["name"]})
 
         friends_selected = [f for f in data.get("friends_list", []) if f.get("selected")]
         if friends_selected:
