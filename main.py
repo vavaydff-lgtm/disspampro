@@ -1,3 +1,4 @@
+```python
 # main.py
 import asyncio
 import json
@@ -21,7 +22,7 @@ if not BOT_TOKEN:
     print("❌ Установи BOT_TOKEN!")
     exit(1)
 
-bot = Bot(token=BOT_TIMEOUT, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
@@ -99,7 +100,7 @@ def get_dm_session(token):
         "Origin": "https://discord.com", "Referer": "https://discord.com/channels/@me",
         "Sec-Ch-Ua": '"Chromium";v="121"', "Sec-Ch-Ua-Mobile": "?1",
         "Sec-Ch-Ua-Platform": '"Android"',
-        "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors", "type": "same-origin",
+        "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "same-origin",
     })
     return s
 
@@ -130,7 +131,7 @@ def get_guilds(token):
     return guilds
 
 def get_friends(token):
-    r = rest_req(token, "get", "https://discord.com/api/v9/users/@me/relationships")
+    r = rest_req(token, "GET", "https://discord.com/api/v9/users/@me/relationships")
     return [x['user'] for x in r.json() if r and r.status_code == 200 and x.get('type') == 1] if r else []
 
 def get_dms(token):
@@ -138,7 +139,6 @@ def get_dms(token):
     if not r or r.status_code != 200: return []
     result = []
     for ch in r.json():
-        # ЛС (тип 1) + Групповые (тип 3)
         if ch.get('type') in [1, 3]:
             if ch.get('type') == 1:
                 user = ch.get('recipients', [{}])[0]
@@ -151,7 +151,7 @@ def get_dms(token):
 
 def get_guild_channels(token, gid):
     r = rest_req(token, "GET", f"https://discord.com/api/v9/guilds/{gid}/channels")
-    if not r or r.status_code != 200: 
+    if not r or r.status_code != 200:
         return []
     result = []
     for c in r.json():
@@ -161,10 +161,6 @@ def get_guild_channels(token, gid):
         if perms == 0 or ((perms & PERM_VIEW) and (perms & PERM_SEND)):
             result.append({"id": c["id"], "name": c["name"]})
     return result
-
-def create_dm(token, uid):
-    r = rest_req(token, "POST", "https://discord.com/api/v9/users/@me/channels", json={"recipient_id": uid})
-    return r.json().get('id') if r and r.status_code == 200 else None
 
 def send_rest(token, ch_id, msg):
     return rest_req(token, "POST", f"https://discord.com/api/v9/channels/{ch_id}/messages", json={"content": msg, "nonce": ''.join(random.choices(string.digits, k=18)), "tts": False})
@@ -197,10 +193,6 @@ def admin_main_kb():
         [InlineKeyboardButton(text="🔑 Добавить токен", callback_data="add_token")],
         [InlineKeyboardButton(text="📋 Мои аккаунты", callback_data="list_accs")],
         [InlineKeyboardButton(text="🎯 Собрать цели", callback_data="collect")],
-        [inline_keyboard(
-            InlineKeyboardButton(text="👥 Друзья", callback_data="tgl_friends"),
-            InlineKeyboardButton(text="💬 Групповые чаты", callback_data="tgl_dms")
-        )],
         [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")],
         [InlineKeyboardButton(text="📝 Сообщение", callback_data="set_msg")],
         [InlineKeyboardButton(text="🚀 Старт спама", callback_data="start_spam")],
@@ -222,19 +214,12 @@ def collect_kb(uid):
     ensure_user(uid)
     t = users[uid].get("targets", {})
     btns = []
-    
-    # Серверы
     total_g = sum(len(data.get("guilds", [])) for data in t.values())
-    btns.append([InlineKeyboardButton(text=f"🖥 Серверы: {total_g}", callback_data="tgl_servers")])
-    
-    # Друзья
     total_f = sum(len(data.get("friends_list", [])) for data in t.values())
-    btns.append([InlineKeyboardButton(text=f"👥 Друзья: {total_f}", callback_data="tgl_friends")])
-    
-    # ЛС и группы
     total_d = sum(len(data.get("dms_list", [])) for data in t.values())
+    btns.append([InlineKeyboardButton(text=f"🖥 Серверы: {total_g}", callback_data="tgl_servers")])
+    btns.append([InlineKeyboardButton(text=f"👥 Друзья: {total_f}", callback_data="tgl_friends")])
     btns.append([InlineKeyboardButton(text=f"💬 ЛС и группы: {total_d}", callback_data="tgl_dms")])
-    
     btns.append([InlineKeyboardButton(text="✅ Загрузить каналы", callback_data="load_channels")])
     btns.append([InlineKeyboardButton(text="← Назад", callback_data="back")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
@@ -242,7 +227,7 @@ def collect_kb(uid):
 def settings_kb(s):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="REST -", callback_data="rd-"), InlineKeyboardButton(text="REST +", callback_data="rd+")],
-        [InlineKeyboardButton(text="Разброс -", callback_data="j-"), InlineKeyboardButton(text="разброс +", callback_data="j+")],
+        [InlineKeyboardButton(text="Разброс -", callback_data="j-"), InlineKeyboardButton(text="Разброс +", callback_data="j+")],
         [InlineKeyboardButton(text="DM -", callback_data="dd-"), InlineKeyboardButton(text="DM +", callback_data="dd+")],
         [InlineKeyboardButton(text="Пауза -", callback_data="pd-"), InlineKeyboardButton(text="Пауза +", callback_data="pd+")],
         [InlineKeyboardButton(text=f"⌨️ {'ВЫКЛ' if s['typing'] else 'ВКЛ'}", callback_data="tt")],
@@ -264,11 +249,15 @@ async def cb_back(c: CallbackQuery, state: FSMContext):
     await state.clear()
     uid = c.from_user.id
     if is_admin(uid):
-        try: await c.message.edit_text("👑 <b>Админ-панель</b>", reply_markup=admin_main_kb())
-        except: pass
+        try:
+            await c.message.edit_text("👑 <b>Админ-панель</b>", reply_markup=admin_main_kb())
+        except:
+            pass
     else:
-        try: await c.message.edit_text("🏠 Главное меню", reply_markup=main_kb())
-        except: pass
+        try:
+            await c.message.edit_text("🏠 Главное меню", reply_markup=main_kb())
+        except:
+            pass
 
 @router.callback_query(F.data == "admin_none")
 async def cb_admin_none(c: CallbackQuery):
@@ -279,9 +268,11 @@ async def cb_add_token(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    await state.set_state(States.waiting_token)
-    try: await c.message.edit_text("🔑 Отправь Discord токен:", reply_markup=back_kb())
-    except: pass
+    await state.set_state(states.waiting_token)
+    try:
+        await c.message.edit_text("🔑 Отправь Discord токен:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(States.waiting_token)
 async def got_token(m: Message, state: FSMContext):
@@ -307,19 +298,23 @@ async def cb_list(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    uid = c.from_user id=c.from_user.id
+    uid = c.from_user.id
     ensure_user(uid)
     accs = users[uid]["accounts"]
     if not accs:
-        try: await c.message.edit_text("❌ Нет аккаунтов", reply_markup=back_kb())
-        except: pass
+        try:
+            await c.message.edit_text("❌ Нет аккаунтов", reply_markup=back_kb())
+        except:
+            pass
         return
     text = f"📋 Аккаунтов: {len(accs)}\n\n"
     for i, a in enumerate(accs):
         text += f"{i+1}. <code>{a['username']}</code>\n"
     text += "\n/del — удалить все"
-    try: await c.message.edit_text(text, reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text(text, reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(Command("del"))
 async def cmd_del(m: Message):
@@ -343,8 +338,10 @@ async def cb_collect(c: CallbackQuery):
     if not users[uid]["accounts"]:
         await c.answer("❌ Добавь токены!", show_alert=True)
         return
-    try: await c.message.edit_text("⏳ Собираю...", reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text("⏳ Собираю...", reply_markup=back_kb())
+    except:
+        pass
     asyncio.create_task(do_collect(uid, c.message.chat.id))
 
 async def do_collect(uid, chat_id):
@@ -364,11 +361,8 @@ async def do_collect(uid, chat_id):
         except:
             guilds, friends, dms = [], [], []
         
-        # Друзья сохраняем как список (отдельно от серверов)
         friends_list = [{"id": f["id"], "name": f"@{f.get('username','?')}", "selected": True} for f in friends]
-        
-        # ЛС и группы сохраняем как список
-        dms_list = [{"id": d["id"], "name": d["name"], "type": d.get("type", 3), "selected": d.get("type", 3) == 3} for d in dms]
+        dms_list = [{"id": d["id"], "name": d["name"], "type": d.get("type", 3), "selected": d.get("type") == 3} for d in dms]
         
         targets[uname] = {
             "token": token,
@@ -387,11 +381,14 @@ async def cb_tgl_servers(c: CallbackQuery):
     ensure_user(uid)
     for uname, data in users[uid]["targets"].items():
         sel = all(g["selected"] for g in data.get("guilds", []))
-        for g in data.get("guilds", []): g["selected"] = not sel
+        for g in data.get("guilds", []):
+            g["selected"] = not sel
     save_data()
     await c.answer("Готово")
-    try: await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
-    except: pass
+    try:
+        await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    except:
+        pass
 
 @router.callback_query(F.data == "tgl_friends")
 async def cb_tgl_friends(c: CallbackQuery):
@@ -399,11 +396,14 @@ async def cb_tgl_friends(c: CallbackQuery):
     ensure_user(uid)
     for uname, data in users[uid]["targets"].items():
         sel = all(f["selected"] for f in data.get("friends_list", []))
-        for f in data.get("friends_list", []): f["selected"] = not sel
+        for f in data.get("friends_list", []):
+            f["selected"] = not sel
     save_data()
     await c.answer("Готово")
-    try: await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
-    except: pass
+    try:
+        await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    except:
+        pass
 
 @router.callback_query(F.data == "tgl_dms")
 async def cb_tgl_dms(c: CallbackQuery):
@@ -411,19 +411,24 @@ async def cb_tgl_dms(c: CallbackQuery):
     ensure_user(uid)
     for uname, data in users[uid]["targets"].items():
         sel = all(d["selected"] for d in data.get("dms_list", []))
-        for d in data.get("dms_list", []): d["selected"] = not sel
+        for d in data.get("dms_list", []):
+            d["selected"] = not sel
     save_data()
     await c.answer("Готово")
-    try: await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
-    except: pass
+    try:
+        await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    except:
+        pass
 
 @router.callback_query(F.data == "load_channels")
 async def cb_load_channels(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    try: await c.message.edit_text("⏳ Загружаю каналы...")
-    except: pass
+    try:
+        await c.message.edit_text("⏳ Загружаю каналы...")
+    except:
+        pass
     asyncio.create_task(do_load_channels(c.from_user.id, c.message.chat.id))
 
 async def do_load_channels(uid, chat_id):
@@ -435,9 +440,9 @@ async def do_load_channels(uid, chat_id):
         token = data["token"]
         rest_ch, dm_ch = [], []
         
-        # Серверы
         for g in data.get("guilds", []):
-            if not g.get("selected"): continue
+            if not g.get("selected"):
+                continue
             try:
                 loop = asyncio.get_event_loop()
                 chs = await loop.run_in_executor(None, get_guild_channels, token, g["id"])
@@ -448,29 +453,25 @@ async def do_load_channels(uid, chat_id):
             except:
                 pass
         
-        # Друзья -> DM через REST (без создания, они уже в /users/@me/channels)
+        for d in dms_selected = [d for d in data.get("dms_list", []) if d.get("selected") and d.get("type") == 3]:
+            test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
+            if test and test.status_code == 200:
+                rest_ch.append({"id": d["id"], "name": d["name"})
+
         friends_selected = [f for f in data.get("friends_list", []) if f.get("selected")]
         if friends_selected:
             all_dms = get_dms(token)
             for f in friends_selected:
-                # Ищем ЛС с этим пользователем
                 dm_ch_data = next((d for d in all_dms if d.get('type') == 1 and d.get('recipients', [{}])[0].get('id') == f["id"]), None)
                 if dm_ch_data:
                     dm_ch.append({"id": dm_ch_data["id"], "name": dm_ch_data["name"]})
-        
-        # Групповые чаты -> REST
-        dms_selected = [d for d in data.get("dms_list", []) if d.get("selected") and d.get("type") == 3]
-        for d in dms_selected:
-            test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
-            if test and test.status_code == 200:
-                rest_ch.append({"id": d["id"], "name": d["name"]})
-        
+
         data["rest_channels"] = rest_ch
         data["dm_channels"] = dm_ch
         total_rest += len(rest_ch)
         total_dm += len(dm_ch)
         await bot.send_message(chat_id, f"✅ <code>{uname}</code>:\n🖥 REST: {len(rest_ch)}\n📱 DM: {len(dm_ch)}")
-    
+
     users[uid]["targets"] = targets
     save_data()
     await bot.send_message(chat_id, f"🎉 Готово!\n🖥 REST: {total_rest} | 📱 DM: {total_dm}", reply_markup=admin_main_kb())
@@ -489,44 +490,73 @@ async def cb_settings(c: CallbackQuery):
 📱 DM: <code>{s['dm_delay']}</code>с
 😴 Пауза: <code>{s['round_delay']}</code>с
 ⌨️ Набор: {'✅' if s['typing'] else '❌'}"""
-    try: await c.message.edit_text(text, reply_markup=settings_kb(s))
-    except: pass
+    try:
+        await c.message.edit_text(text, reply_markup=settings_kb(s))
+    except:
+        pass
 
 @router.callback_query(F.data == "rd-")
 async def cb_rd_m(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["msg_delay"] = max(1, users[c.from_user.id]["settings"]["msg_delay"] - 1); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["msg_delay"] = max(1, users[c.from_user.id]["settings"]["msg_delay"] - 1)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "rd+")
 async def cb_rd_p(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["msg_delay"] = min(60, users[c.from_user.id]["settings"]["msg_delay"] + 1); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["msg_delay"] = min(60, users[c.from_user.id]["settings"]["msg_delay"] + 1)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "j-")
 async def cb_j_m(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["jitter"] = max(0, users[c.from_user.id]["settings"]["jitter"] - 0.5); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["jitter"] = max(0, users[c.from_user.id]["settings"]["jitter"] - 0.5)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "j+")
 async def cb_j_p(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["jitter"] = min(10, users[c.from_user.id]["settings"]["jitter"] + 0.5); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["jitter"] = min(10, users[c.from_user.id]["settings"]["jitter"] + 0.5)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "dd-")
 async def cb_dd_m(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["dm_delay"] = max(3, users[c.from_user.id]["settings"]["dm_delay"] - 1); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["dm_delay"] = max(3, users[c.from_user.id]["settings"]["dm_delay"] - 1)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "dd+")
 async def cb_dd_p(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["dm_delay"] = min(120, users[c.from_user.id]["settings"]["dm_delay"] + 1); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["dm_delay"] = min(120, users[c.from_user.id]["settings"]["dm_delay"] + 1)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "pd-")
 async def cb_pd_m(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["round_delay"] = max(5, users[c.from_user.id]["settings"]["round_delay"] - 5); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["round_delay"] = max(5, users[c.from_user.id]["round_delay"] - 5)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "pd+")
 async def cb_pd_p(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["round_delay"] = min(300, users[c.from_user.id]["settings"]["round_delay"] + 5); save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["round_delay"] = min(300, users[c.from_user.id]["round_delay"] + 5)
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "tt")
 async def cb_tt(c: CallbackQuery):
-    ensure_user(c.from_user.id); users[c.from_user.id]["settings"]["typing"] = not users[c.from_user.id]["settings"]["typing"]; save_data(); await cb_settings(c)
+    ensure_user(c.from_user.id)
+    users[c.from_user.id]["settings"]["typing"] = not users[c.from_user.id]["settings"]["typing"]
+    save_data()
+    await cb_settings(c)
 
 @router.callback_query(F.data == "set_msg")
 async def cb_set_msg(c: CallbackQuery, state: FSMContext):
@@ -534,8 +564,10 @@ async def cb_set_msg(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_msg)
-    try: await c.message.edit_text("📝 Отправь сообщение:", reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text("📝 Отправь сообщение:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(States.waiting_msg)
 async def got_msg(m: Message, state: FSMContext):
@@ -582,7 +614,8 @@ async def cb_start(c: CallbackQuery):
         await c.message.edit_text(f"🚀 <b>СПАМ ЗАПУЩЕН</b>\n\n🖥 REST: {rest_total} каналов\n📱 DM: {dm_total} ЛС", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛑 СТОП", callback_data="stop_spam")]
         ]))
-    except: pass
+    except:
+        pass
     asyncio.create_task(do_spam(uid, c.message.chat.id))
 
 async def do_spam(uid, chat_id):
@@ -595,20 +628,23 @@ async def do_spam(uid, chat_id):
         rnd += 1
         rest_sent, dm_sent = 0, 0
         
-        # ФАЗА 1: REST (сервера + группы)
         for uname, data in u["targets"].items():
-            if u.get("stop"): break
+            if u.get("stop"):
+                break
             channels = data.get("rest_channels", [])
-            if not channels: continue
+            if not channels:
+                continue
             random.shuffle(channels)
             for ch in channels[:]:
-                if u.get("stop"): break
+                if u.get("stop"):
+                    break
                 try:
                     loop = asyncio.get_event_loop()
                     m = msg + " " if random.random() < 0.15 else msg
                     r = await loop.run_in_executor(None, send_rest, data["token"], ch["id"], m)
                     if r and r.status_code == 200:
-                        sent += 1; rest_sent += 1
+                        sent += 1
+                        rest_sent += 1
                     elif r and r.status_code == 403:
                         if ch in data["rest_channels"]:
                             data["rest_channels"].remove(ch)
@@ -618,30 +654,37 @@ async def do_spam(uid, chat_id):
                         retry = r.json().get('retry_after', 5)
                         await asyncio.sleep(retry + 1)
                         continue
-                except: pass
+                except:
+                    pass
                 delay = max(0.5, s["msg_delay"] + random.uniform(-s["jitter"], s["jitter"]))
                 await asyncio.sleep(delay)
-        
+
         if rest_sent > 0:
-            try: await bot.send_message(chat_id, f"📊 Р{rnd} REST: +{rest_sent} | Всего: {sent}")
-            except: pass
-        
-        if not u.get("stop"): await asyncio.sleep(random.uniform(5, 15))
-        
-        # ФАЗА 2: DM (все ЛС - друзья и переписки)
+            try:
+                await bot.send_message(chat_id, f"📊 Р{rnd} REST: +{rest_sent} | Всего: {sent}")
+            except:
+                pass
+
+        if not u.get("stop"):
+            await asyncio.sleep(random.uniform(5, 15)
+
         for uname, data in u["targets"].items():
-            if u.get("stop"): break
+            if u.get("stop"):
+                break
             channels = data.get("dm_channels", [])
-            if not channels: continue
+            if not channels:
+                continue
             random.shuffle(channels)
             for ch in channels[:]:
-                if u.get("stop"): break
+                if u.get("stop"):
+                    break
                 try:
                     loop = asyncio.get_event_loop()
                     m = msg + "  " if random.random() < 0.1 else msg
                     r = await loop.run_in_executor(None, send_dm, data["token"], ch["id"], m)
                     if r and r.status_code == 200:
-                        sent += 1; dm_sent += 1
+                        sent += 1
+                        dm_sent += 1
                     elif r and r.status_code == 403:
                         if ch in data["dm_channels"]:
                             data["dm_channels"].remove(ch)
@@ -651,26 +694,33 @@ async def do_spam(uid, chat_id):
                         retry = r.json().get('retry_after', 10)
                         await asyncio.sleep(retry + 3)
                         continue
-                except: pass
+                except:
+                    pass
                 dm_actual = max(3, s["dm_delay"] + random.uniform(-1, 2))
                 await asyncio.sleep(dm_actual)
-        
+
         if dm_sent > 0:
-            try: await bot.send_message(chat_id, f"📊 Р{rnd} DM: +{dm_sent} | Всего: {sent}")
-            except: pass
-        
+            try:
+                await bot.send_message(chat_id, f"📊 Р{rnd} DM: +{dm_sent} | Всего: {sent}")
+            except:
+                pass
+
         u["sent"] = sent
         save_data()
-        
+
         if not u.get("stop"):
-            try: await bot.send_message(chat_id, f"😴 Раунд {rnd}. Отдых {s['round_delay']}с...")
-            except: pass
+            try:
+                await bot.send_message(chat_id, f"😴 Раунд {rnd}. Отдых {s['round_delay']}с...")
+            except:
+                pass
             await asyncio.sleep(s["round_delay"])
-    
+
     u["spamming"] = False
     save_data()
-    try: await bot.send_message(chat_id, f"🛑 Стоп! Отправлено: {sent}", reply_markup=admin_main_kb())
-    except: pass
+    try:
+        await bot.send_message(chat_id, f"🛑 Стоп! Отправлено: {sent}", reply_markup=admin_main_kb())
+    except:
+        pass
 
 @router.callback_query(F.data == "stop_spam")
 async def cb_stop(c: CallbackQuery):
@@ -685,8 +735,10 @@ async def cb_admin_users(c: CallbackQuery):
         await c.answer("🚫", show_alert=True)
         return
     if not users:
-        try: await c.message.edit_text("👤 Юзеров нет", reply_markup=back_kb())
-        except: pass
+        try:
+            await c.message.edit_text("👤 Юзеров нет", reply_markup=back_kb())
+        except:
+            pass
         return
     text = "👤 <b>Юзеры:</b>\n\n"
     for u_id, data in users.items():
@@ -696,8 +748,10 @@ async def cb_admin_users(c: CallbackQuery):
         dm = sum(len(d.get("dm_channels", [])) for d in data.get("targets", {}).values())
         st = "🟢 Спамит" if data.get("spamming") else "⚪ Idle"
         text += f"{adm} <code>{u_id}</code> | {acc} акк | REST:{rest} DM:{dm} | {st}\n"
-    try: await c.message.edit_text(text, reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text(text, reply_markup=back_kb())
+    except:
+        pass
 
 @router.callback_query(F.data == "admin_add")
 async def cb_admin_add(c: CallbackQuery, state: FSMContext):
@@ -705,8 +759,10 @@ async def cb_admin_add(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
-    try: await c.message.edit_text("➕ Отправь Telegram ID нового админа:", reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text("➕ Отправь Telegram ID нового админа:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.callback_query(F.data == "admin_del")
 async def cb_admin_del(c: CallbackQuery, state: FSMContext):
@@ -714,18 +770,21 @@ async def cb_admin_del(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
-    try: await c.message.edit_text("➖ Отправь Telegram ID для удаления:", reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text("➖ Отправь Telegram ID для удаления:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.callback_query(F.data == "admin_wipe")
 async def cb_admin_wipe(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
-    uid = c.from_user.id
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
-    try: await c.message.edit_text("🗑 Отправь Telegram ID юзера для очистки:", reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text("🗑 Отправь Telegram ID юзера для очистки:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(States.waiting_admin_id)
 async def got_admin_id(m: Message, state: FSMContext):
@@ -777,7 +836,7 @@ async def cmd_deladmin(m: Message):
         ADMIN_IDS.remove(target_id)
     await m.answer(f"➖ Удалён: <code>{target_id}</code>\nСписок: {ADMIN_IDS}")
 
-@router.message(Command("myid"))
+@router.message(Command("myid")
 async def cmd_myid(m: Message):
     await m.answer(f"Твой ID: <code>{m.from_user.id}</code>")
 
@@ -800,8 +859,10 @@ async def cb_admin_stats(c: CallbackQuery):
 📱 DM: {total_dm}
 📨 Отправлено: {total_sent}
 🟢 Спамят: {spamming}"""
-    try: await c.message.edit_text(text, reply_markup=back_kb())
-    except: pass
+    try:
+        await c.message.edit_text(text, reply_markup=back_kb())
+    except:
+        pass
 
 @router.errors()
 async def errors_handler(event):
@@ -815,3 +876,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
