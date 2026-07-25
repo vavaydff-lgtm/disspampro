@@ -144,7 +144,8 @@ def get_dms(token):
             else:
                 name = ch.get('name') or ', '.join(x.get('username','?') for x in ch.get('recipients',[])[:3])
                 if len(ch.get('recipients',[])) > 3: name += f" +{len(ch['recipients'])-3}"
-            result.append({"id": ch["id"], "name": name, "type": ch.get("type")})
+            # Добавлено сохранение recipients для дальнейшей проверки в do_load_channels
+            result.append({"id": ch["id"], "name": name, "type": ch.get("type"), "recipients": ch.get("recipients", [])})
     return result
 
 def get_guild_channels(token, gid):
@@ -266,7 +267,8 @@ async def cb_add_token(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    await state.set_state(states.waiting_token)
+    # ИСПРАВЛЕНИЕ 3: states -> States
+    await state.set_state(States.waiting_token)
     try:
         await c.message.edit_text("🔑 Отправь Discord токен:", reply_markup=back_kb())
     except:
@@ -451,7 +453,9 @@ async def do_load_channels(uid, chat_id):
             except:
                 pass
         
-        for d in dms_selected = [d for d in data.get("dms_list", []) if d.get("selected") and d.get("type") == 3]:
+        # ИСПРАВЛЕНИЕ 1: Вынесено присваивание из цикла for
+        dms_selected = [d for d in data.get("dms_list", []) if d.get("selected") and d.get("type") == 3]
+        for d in dms_selected:
             test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
             if test and test.status_code == 200:
                 rest_ch.append({"id": d["id"], "name": d["name"]})
@@ -538,14 +542,15 @@ async def cb_dd_p(c: CallbackQuery):
 @router.callback_query(F.data == "pd-")
 async def cb_pd_m(c: CallbackQuery):
     ensure_user(c.from_user.id)
-    users[c.from_user.id]["settings"]["round_delay"] = max(5, users[c.from_user.id]["round_delay"] - 5)
+    users[c.from_user.id]["settings"]["round_delay"] = max(5, users[c.from_user.id]["settings"]["round_delay"] - 5)
     save_data()
     await cb_settings(c)
 
 @router.callback_query(F.data == "pd+")
 async def cb_pd_p(c: CallbackQuery):
     ensure_user(c.from_user.id)
-    users[c.from_user.id]["settings"]["round_delay"] = min(300, users[c.from_user.id]["round_delay"] + 5)
+    # ИСПРАВЛЕНИЕ 4: Добавлено пропущенное ["settings"]
+    users[c.from_user.id]["settings"]["round_delay"] = min(300, users[c.from_user.id]["settings"]["round_delay"] + 5)
     save_data()
     await cb_settings(c)
 
@@ -664,7 +669,8 @@ async def do_spam(uid, chat_id):
                 pass
 
         if not u.get("stop"):
-            await asyncio.sleep(random.uniform(5, 15)
+            # ИСПРАВЛЕНИЕ 2: Добавлена пропущенная закрывающая скобка )
+            await asyncio.sleep(random.uniform(5, 15))
 
         for uname, data in u["targets"].items():
             if u.get("stop"):
@@ -834,7 +840,8 @@ async def cmd_deladmin(m: Message):
         ADMIN_IDS.remove(target_id)
     await m.answer(f"➖ Удалён: <code>{target_id}</code>\nСписок: {ADMIN_IDS}")
 
-@router.message(Command("myid")
+# ИСПРАВЛЕНИЕ 5: Добавлена пропущенная закрывающая скобка )
+@router.message(Command("myid"))
 async def cmd_myid(m: Message):
     await m.answer(f"Твой ID: <code>{m.from_user.id}</code>")
 
@@ -874,4 +881,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
