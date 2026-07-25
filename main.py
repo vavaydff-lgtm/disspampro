@@ -720,7 +720,7 @@ async def cb_admin_del(c: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin_wipe")
 async def cb_admin_wipe(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
-        await c.from_user.id
+    uid = c.from_user.id
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
