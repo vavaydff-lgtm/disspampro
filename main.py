@@ -32,8 +32,6 @@ PERM_VIEW = 0x400
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-# ==================== API ====================
-
 REST_S = {}
 DM_S = {}
 
@@ -142,14 +140,10 @@ def send_rest(token, ch_id, msg):
 def send_dm(token, ch_id, msg):
     return dm_req(token, "POST", f"https://discord.com/api/v10/channels/{ch_id}/messages", json={"content": msg, "nonce": ''.join(random.choices(string.ascii_lowercase + string.digits, k=20)), "tts": False})
 
-# ==================== FSM ====================
-
 class States(StatesGroup):
     waiting_token = State()
     waiting_msg = State()
     waiting_admin_id = State()
-
-# ==================== КЛАВИАТУРЫ (новый синтаксис) ====================
 
 def main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -208,8 +202,6 @@ def settings_kb(s):
         [InlineKeyboardButton(text="← Назад", callback_data="back")],
     ])
 
-# ==================== ХЭНДЛЕРЫ ====================
-
 @router.message(CommandStart())
 async def cmd_start(m: Message, state: FSMContext):
     uid = m.from_user.id
@@ -225,15 +217,19 @@ async def cb_back(c: CallbackQuery, state: FSMContext):
     await state.clear()
     uid = c.from_user.id
     if is_admin(uid):
-        await c.message.edit_text("👑 <b>Админ-панель</b>", reply_markup=admin_main_kb())
+        try:
+            await c.message.edit_text("👑 <b>Админ-панель</b>", reply_markup=admin_main_kb())
+        except:
+            pass
     else:
-        await c.message.edit_text("🏠 Главное меню", reply_markup=main_kb())
+        try:
+            await c.message.edit_text("🏠 Главное меню", reply_markup=main_kb())
+        except:
+            pass
 
 @router.callback_query(F.data == "admin_none")
 async def cb_admin_none(c: CallbackQuery):
     await c.answer()
-
-# ==================== ТОКЕНЫ ====================
 
 @router.callback_query(F.data == "add_token")
 async def cb_add_token(c: CallbackQuery, state: FSMContext):
@@ -241,7 +237,10 @@ async def cb_add_token(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_token)
-    await c.message.edit_text("🔑 Отправь Discord токен:", reply_markup=back_kb())
+    try:
+        await c.message.edit_text("🔑 Отправь Discord токен:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(States.waiting_token)
 async def got_token(m: Message, state: FSMContext):
@@ -268,13 +267,19 @@ async def cb_list(c: CallbackQuery):
     uid = c.from_user.id
     accs = users[uid]["accounts"]
     if not accs:
-        await c.message.edit_text("❌ Нет аккаунтов", reply_markup=back_kb())
+        try:
+            await c.message.edit_text("❌ Нет аккаунтов", reply_markup=back_kb())
+        except:
+            pass
         return
     text = f"📋 Аккаунтов: {len(accs)}\n\n"
     for i, a in enumerate(accs):
         text += f"{i+1}. <code>{a['username']}</code>\n"
     text += "\n/del — удалить все"
-    await c.message.edit_text(text, reply_markup=back_kb())
+    try:
+        await c.message.edit_text(text, reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(Command("del"))
 async def cmd_del(m: Message):
@@ -286,8 +291,6 @@ async def cmd_del(m: Message):
     users[uid]["targets"] = {}
     await m.answer("🗑 Удалено", reply_markup=admin_main_kb())
 
-# ==================== СБОР ЦЕЛЕЙ ====================
-
 @router.callback_query(F.data == "collect")
 async def cb_collect(c: CallbackQuery):
     if not is_admin(c.from_user.id):
@@ -297,7 +300,10 @@ async def cb_collect(c: CallbackQuery):
     if not users[uid]["accounts"]:
         await c.answer("❌ Добавь токены!", show_alert=True)
         return
-    await c.message.edit_text("⏳ Собираю...", reply_markup=back_kb())
+    try:
+        await c.message.edit_text("⏳ Собираю...", reply_markup=back_kb())
+    except:
+        pass
     asyncio.create_task(do_collect(uid, c.message.chat.id))
 
 async def do_collect(uid, chat_id):
@@ -333,7 +339,10 @@ async def cb_tgl_g(c: CallbackQuery):
     sel = all(g["selected"] for g in t["guilds"])
     for g in t["guilds"]: g["selected"] = not sel
     await c.answer("Готово")
-    await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    try:
+        await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    except:
+        pass
 
 @router.callback_query(F.data.startswith("tgl_f_"))
 async def cb_tgl_f(c: CallbackQuery):
@@ -343,7 +352,10 @@ async def cb_tgl_f(c: CallbackQuery):
     sel = all(f["selected"] for f in t["friends"])
     for f in t["friends"]: f["selected"] = not sel
     await c.answer("Готово")
-    await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    try:
+        await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    except:
+        pass
 
 @router.callback_query(F.data.startswith("tgl_d_"))
 async def cb_tgl_d(c: CallbackQuery):
@@ -353,14 +365,20 @@ async def cb_tgl_d(c: CallbackQuery):
     sel = all(d["selected"] for d in t["dms"])
     for d in t["dms"]: d["selected"] = not sel
     await c.answer("Готово")
-    await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    try:
+        await c.message.edit_reply_markup(reply_markup=collect_kb(uid))
+    except:
+        pass
 
 @router.callback_query(F.data == "load_channels")
 async def cb_load_channels(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    await c.message.edit_text("⏳ Загружаю каналы...")
+    try:
+        await c.message.edit_text("⏳ Загружаю каналы...")
+    except:
+        pass
     asyncio.create_task(do_load_channels(c.from_user.id, c.message.chat.id))
 
 async def do_load_channels(uid, chat_id):
@@ -394,8 +412,6 @@ async def do_load_channels(uid, chat_id):
     users[uid]["targets"] = targets
     await bot.send_message(chat_id, f"🎉 Готово!\n🖥 REST: {total_rest}\n📱 DM: {total_dm}", reply_markup=admin_main_kb())
 
-# ==================== НАСТРОЙКИ ====================
-
 @router.callback_query(F.data == "settings")
 async def cb_settings(c: CallbackQuery):
     if not is_admin(c.from_user.id):
@@ -409,45 +425,55 @@ async def cb_settings(c: CallbackQuery):
 📱 DM: <code>{s['dm_delay']}</code>с
 😴 Пауза: <code>{s['round_delay']}</code>с
 ⌨️ Набор: {'✅' if s['typing'] else '❌'}"""
-    await c.message.edit_text(text, reply_markup=settings_kb(s))
+    try:
+        await c.message.edit_text(text, reply_markup=settings_kb(s))
+    except:
+        pass
 
 @router.callback_query(F.data == "rd-")
 async def cb_rd_m(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["msg_delay"] = max(1, users[uid]["settings"]["msg_delay"] - 1); await cb_settings(c)
+    users[c.from_user.id]["settings"]["msg_delay"] = max(1, users[c.from_user.id]["settings"]["msg_delay"] - 1)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "rd+")
 async def cb_rd_p(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["msg_delay"] = min(60, users[uid]["settings"]["msg_delay"] + 1); await cb_settings(c)
+    users[c.from_user.id]["settings"]["msg_delay"] = min(60, users[c.from_user.id]["settings"]["msg_delay"] + 1)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "j-")
 async def cb_j_m(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["jitter"] = max(0, users[uid]["settings"]["jitter"] - 0.5); await cb_settings(c)
+    users[c.from_user.id]["settings"]["jitter"] = max(0, users[c.from_user.id]["settings"]["jitter"] - 0.5)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "j+")
 async def cb_j_p(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["jitter"] = min(10, users[uid]["settings"]["jitter"] + 0.5); await cb_settings(c)
+    users[c.from_user.id]["settings"]["jitter"] = min(10, users[c.from_user.id]["settings"]["jitter"] + 0.5)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "dd-")
 async def cb_dd_m(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["dm_delay"] = max(3, users[uid]["settings"]["dm_delay"] - 1); await cb_settings(c)
+    users[c.from_user.id]["settings"]["dm_delay"] = max(3, users[c.from_user.id]["settings"]["dm_delay"] - 1)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "dd+")
 async def cb_dd_p(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["dm_delay"] = min(120, users[uid]["settings"]["dm_delay"] + 1); await cb_settings(c)
+    users[c.from_user.id]["settings"]["dm_delay"] = min(120, users[c.from_user.id]["settings"]["dm_delay"] + 1)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "pd-")
 async def cb_pd_m(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["round_delay"] = max(5, users[uid]["settings"]["round_delay"] - 5); await cb_settings(c)
+    users[c.from_user.id]["settings"]["round_delay"] = max(5, users[c.from_user.id]["settings"]["round_delay"] - 5)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "pd+")
 async def cb_pd_p(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["round_delay"] = min(300, users[uid]["settings"]["round_delay"] + 5); await cb_settings(c)
+    users[c.from_user.id]["settings"]["round_delay"] = min(300, users[c.from_user.id]["settings"]["round_delay"] + 5)
+    await cb_settings(c)
 
 @router.callback_query(F.data == "tt")
 async def cb_tt(c: CallbackQuery):
-    uid = c.from_user.id; users[uid]["settings"]["typing"] = not users[uid]["settings"]["typing"]; await cb_settings(c)
-
-# ==================== СООБЩЕНИЕ ====================
+    users[c.from_user.id]["settings"]["typing"] = not users[c.from_user.id]["settings"]["typing"]
+    await cb_settings(c)
 
 @router.callback_query(F.data == "set_msg")
 async def cb_set_msg(c: CallbackQuery, state: FSMContext):
@@ -455,7 +481,10 @@ async def cb_set_msg(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_msg)
-    await c.message.edit_text("📝 Отправь сообщение:", reply_markup=back_kb())
+    try:
+        await c.message.edit_text("📝 Отправь сообщение:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(States.waiting_msg)
 async def got_msg(m: Message, state: FSMContext):
@@ -463,8 +492,6 @@ async def got_msg(m: Message, state: FSMContext):
     users[uid]["msgs"] = [m.text.strip()]
     await state.clear()
     await m.answer(f"✅ Сообщение: <code>{m.text[:50]}</code>", reply_markup=admin_main_kb())
-
-# ==================== СПАМ ====================
 
 @router.callback_query(F.data == "start_spam")
 async def cb_start(c: CallbackQuery):
@@ -488,9 +515,12 @@ async def cb_start(c: CallbackQuery):
     u["spamming"] = True
     u["sent"] = 0
     u["stop"] = False
-    await c.message.edit_text("🚀 <b>СПАМ ЗАПУЩЕН</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛑 СТОП", callback_data="stop_spam")]
-    ]))
+    try:
+        await c.message.edit_text("🚀 <b>СПАМ ЗАПУЩЕН</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛑 СТОП", callback_data="stop_spam")]
+        ]))
+    except:
+        pass
     asyncio.create_task(do_spam(uid, c.message.chat.id))
 
 async def do_spam(uid, chat_id):
@@ -560,15 +590,16 @@ async def cb_stop(c: CallbackQuery):
     users[c.from_user.id]["stop"] = True
     await c.answer("🛑 Останавливаю...", show_alert=True)
 
-# ==================== АДМИНКА ====================
-
 @router.callback_query(F.data == "admin_users")
 async def cb_admin_users(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
     if not users:
-        await c.message.edit_text("👤 Юзеров нет", reply_markup=back_kb())
+        try:
+            await c.message.edit_text("👤 Юзеров нет", reply_markup=back_kb())
+        except:
+            pass
         return
     text = "👤 <b>Юзеры:</b>\n\n"
     for u_id, data in users.items():
@@ -578,7 +609,10 @@ async def cb_admin_users(c: CallbackQuery):
         dm = sum(len(d.get("dm_channels", [])) for d in data.get("targets", {}).values())
         st = "🟢 Спамит" if data.get("spamming") else "⚪ Idle"
         text += f"{adm} <code>{u_id}</code> | {acc} акк | {rest}+{dm} ч | {st}\n"
-    await c.message.edit_text(text, reply_markup=back_kb())
+    try:
+        await c.message.edit_text(text, reply_markup=back_kb())
+    except:
+        pass
 
 @router.callback_query(F.data == "admin_add")
 async def cb_admin_add(c: CallbackQuery, state: FSMContext):
@@ -586,7 +620,10 @@ async def cb_admin_add(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
-    await c.message.edit_text("➕ Отправь Telegram ID нового админа:", reply_markup=back_kb())
+    try:
+        await c.message.edit_text("➕ Отправь Telegram ID нового админа:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.callback_query(F.data == "admin_del")
 async def cb_admin_del(c: CallbackQuery, state: FSMContext):
@@ -594,7 +631,10 @@ async def cb_admin_del(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
-    await c.message.edit_text("➖ Отправь Telegram ID для удаления:", reply_markup=back_kb())
+    try:
+        await c.message.edit_text("➖ Отправь Telegram ID для удаления:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.callback_query(F.data == "admin_wipe")
 async def cb_admin_wipe(c: CallbackQuery, state: FSMContext):
@@ -602,7 +642,10 @@ async def cb_admin_wipe(c: CallbackQuery, state: FSMContext):
         await c.answer("🚫", show_alert=True)
         return
     await state.set_state(States.waiting_admin_id)
-    await c.message.edit_text("🗑 Отправь Telegram ID юзера для очистки:", reply_markup=back_kb())
+    try:
+        await c.message.edit_text("🗑 Отправь Telegram ID юзера для очистки:", reply_markup=back_kb())
+    except:
+        pass
 
 @router.message(States.waiting_admin_id)
 async def got_admin_id(m: Message, state: FSMContext):
@@ -676,9 +719,10 @@ async def cb_admin_stats(c: CallbackQuery):
 📱 DM: {total_dm}
 📨 Отправлено: {total_sent}
 🟢 Спамят: {spamming}"""
-    await c.message.edit_text(text, reply_markup=back_kb())
-
-# ==================== ЗАПУСК ====================
+    try:
+        await c.message.edit_text(text, reply_markup=back_kb())
+    except:
+        pass
 
 async def main():
     print(f"👑 Админы: {ADMIN_IDS}")
