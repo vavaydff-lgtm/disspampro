@@ -1,3 +1,4 @@
+# main.py
 import asyncio
 import json
 import os
@@ -350,13 +351,13 @@ async def do_collect(uid, chat_id):
         targets[uname] = {
             "token": token,
             "guilds": [{"id": g["id"], "name": g.get('name','?'), "selected": True} for g in guilds],
-            "friends": [{"id": f["id"], "name": f"@{f.get('username','?')}", "selected": False} for f in friends],
+            "friends": [{"id": f["id"], "name": f"@{f.get('username','?')}", "selected": True} for f in friends],
             "dms": [{"id": d["id"], "name": d["name"], "selected": True} for d in dms],
         }
         await bot.send_message(chat_id, f"✅ <code>{uname}</code>:\n🖥 {len(guilds)} | 👥 {len(friends)} | 💬 {len(dms)}")
     users[uid]["targets"] = targets
     save_data()
-    await bot.send_message(chat_id, "✅ Выбери что спамить:", reply_markup=collect_kb(uid))
+    await bot.send_message(chat_id, "✅ Выбери что НЕ спамить (или оставь всё):", reply_markup=collect_kb(uid))
 
 @router.callback_query(F.data.startswith("tgl_g_"))
 async def cb_tgl_g(c: CallbackQuery):
@@ -402,7 +403,7 @@ async def cb_load_channels(c: CallbackQuery):
     if not is_admin(c.from_user.id):
         await c.answer("🚫", show_alert=True)
         return
-    try: await c.message.edit_text("⏳ Параллельная проверка доступа...")
+    try: await c.message.edit_text("⏳ Загружаю каналы...")
     except: pass
     asyncio.create_task(do_load_channels(c.from_user.id, c.message.chat.id))
 
@@ -414,68 +415,36 @@ async def do_load_channels(uid, chat_id):
     for uname, data in targets.items():
         token = data["token"]
         rest_ch, dm_ch = [], []
-        check_list = []
         
-        # Собираем серверные каналы
+        # Серверы
         for g in data.get("guilds", []):
             if not g.get("selected"): continue
             try:
                 loop = asyncio.get_event_loop()
                 chs = await loop.run_in_executor(None, get_guild_channels, token, g["id"])
                 for ch in chs:
-                    check_list.append({"id": ch["id"], "name": ch["name"]})
+                    test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{ch['id']}/messages?limit=1")
+                    if test and test.status_code == 200:
+                        rest_ch.append({"id": ch["id"], "name": ch["name"], "api": "rest"})
             except:
                 pass
         
-        # Собираем групповые чаты
+        # Группы
         for d in data.get("dms", []):
             if not d.get("selected"): continue
-            check_list.append({"id": d["id"], "name": d["name"]})
+            test = rest_req(token, "GET", f"https://discord.com/api/v9/channels/{d['id']}/messages?limit=1")
+            if test and test.status_code == 200:
+                rest_ch.append({"id": d["id"], "name": d["name"], "api": "rest"})
         
-        # Безопасная параллельная проверка REST каналов
-        if check_list:
-            async def safe_check(ch_item):
-                try:
-                    loop = asyncio.get_event_loop()
-                    ch_id = ch_item["id"]
-                    tk = token
-                    def req_check():
-                        r = rest_req(tk, "GET", f"https://discord.com/api/v9/channels/{ch_id}/messages?limit=1")
-                        return r and r.status_code == 200
-                    ok = await loop.run_in_executor(None, req_check)
-                    return ok
-                except:
-                    return False
-            
-            loop = asyncio.get_event_loop()
-            tasks = [safe_check(ch) for ch in check_list]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            for ch_item, res in zip(check_list, results):
-                if res is True:
-                    rest_ch.append({"id": ch_item["id"], "name": ch_item["name"], "api": "rest"})
-        
-        # Безопасное параллельное создание DM
-        friends_list = [f for f in data.get("friends", []) if f.get("selected")]
-        if friends_list:
-            async def safe_dm(friend):
-                try:
-                    loop = asyncio.get_event_loop()
-                    f_id = friend["id"]
-                    tk = token
-                    def req_dm():
-                        return create_dm(tk, f_id)
-                    dm_id = await loop.run_in_executor(None, req_dm)
-                    return dm_id
-                except:
-                    return None
-            
-            dm_tasks = [safe_dm(f) for f in friends_list]
-            dm_results = await asyncio.gather(*dm_tasks, return_exceptions=True)
-            
-            for friend, dm_id in zip(friends_list, dm_results):
-                if dm_id and isinstance(dm_id, str):
-                    dm_ch.append({"id": dm_id, "name": friend["name"], "api": "dm"})
+        # Друзья
+        for f in data.get("friends", []):
+            if not f.get("selected"): continue
+            try:
+                loop = asyncio.get_event_loop()
+                dm_id = await loop.run_in_executor(None, create_dm, token, f["id"])
+                if dm_id: dm_ch.append({"id": dm_id, "name": f["name"], "api": "dm"})
+            except:
+                pass
         
         data["rest_channels"] = rest_ch
         data["dm_channels"] = dm_ch
@@ -607,6 +576,7 @@ async def do_spam(uid, chat_id):
         rnd += 1
         rest_sent, dm_sent = 0, 0
         
+        # ФАЗА 1: REST (сервера + группы)
         for uname, data in u["targets"].items():
             if u.get("stop"): break
             channels = data.get("rest_channels", [])
@@ -639,6 +609,7 @@ async def do_spam(uid, chat_id):
         
         if not u.get("stop"): await asyncio.sleep(random.uniform(5, 15))
         
+        # ФАЗА 2: DM (ЛС)
         for uname, data in u["targets"].items():
             if u.get("stop"): break
             channels = data.get("dm_channels", [])
