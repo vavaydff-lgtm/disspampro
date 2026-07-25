@@ -36,7 +36,8 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                return {int(k): v for k, v in data.items()}
         except:
             pass
     return {}
